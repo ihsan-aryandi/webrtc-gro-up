@@ -25,7 +25,7 @@ export default class WebSocketProvider extends Component {
         console.log("INFO : Connecting")
         const ws = new WebSocket('wss://staging-ngchat.gromart.club/v1/ws')
 
-        ws.addEventListener('open', () => this.handleHandshake(ws)) 
+        ws.addEventListener('open', () => this.handleHandshake(ws))
         ws.addEventListener('close', this.handleReconnect)
     }
 
@@ -68,10 +68,6 @@ export default class WebSocketProvider extends Component {
     }
 
     render() {
-        // if (!this.state.ws) {
-        //     return null
-        // }
-
         return (
             <WebSocketContext.Provider value={this.state.ws}>
                 { this.props.children }
