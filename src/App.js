@@ -3,6 +3,7 @@ import './App.css';
 import CallForm from './components/CallForm/CallForm';
 import GroChatVoipProvider from './GroChatVoipProvider';
 import { WebSocketContext } from './WebSocketProvider';
+import Call from './components/Call/Call';
 
 function App() {
   const ws = useContext(WebSocketContext)
@@ -12,6 +13,7 @@ function App() {
       <h1>Voice Call Demo</h1>
       <GroChatVoipProvider ws={ws}>
         <CallForm />
+        <Call />
       </GroChatVoipProvider>
     </div>
   );

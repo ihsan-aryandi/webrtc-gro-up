@@ -56,8 +56,10 @@ export default class WebSocketProvider extends Component {
     /**
      * @param {Event} e
      */
-    handleReconnect = (e) => {
-        console.log("INFO : Reconnecting", e)
+    handleReconnect = async (e) => {
+        const wait = new Promise(resolve => setTimeout(() => resolve(), 3000))
+
+        await wait
 
         this.setState({
             ws: null,

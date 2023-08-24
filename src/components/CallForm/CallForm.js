@@ -27,6 +27,7 @@ export default function CallForm() {
                 <input type="text" id='clientId' name='clientId' onChange={handleChange} value={input.clientId} />
             </div>
             <button type='submit'>Call</button>
+            <button type='button' onClick={() => groChatVoipContext.hangUp()}>Hang Up</button>
         </form>
     )
 }

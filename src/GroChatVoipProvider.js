@@ -2,6 +2,8 @@ import React, { Component } from 'react'
 import PropTypes from 'prop-types'
 import Config from './config/config'
 import { v4 as uuidv4 } from 'uuid'
+import ringingAudio from './ringing.mp3'
+import incomingCallAudio from './ringtone.wav'
 
 const CallType = {
     callId: '',
@@ -10,8 +12,9 @@ const CallType = {
     callStatus: '',
     callFromName: '',
     callFromPhone: '',
-    image: '',
-    code: ''
+    callFromPhotoUser: '',
+    code: '',
+    type: ''
 }
 
 export const GroChatVoipContext = React.createContext({
@@ -32,7 +35,7 @@ export const GroChatVoipContext = React.createContext({
     hangUp: () => {},
 
     /**
-     * @type {React.RefObject}
+     * @type {React.RefObject<HTMLAudioElement>}
      */
     remoteAudioRef: undefined,
 
@@ -40,11 +43,16 @@ export const GroChatVoipContext = React.createContext({
      * @type {CallType|null}
      */
     currentCall: null,
-
+    
     /**
      * @type {boolean}
      */
-    isOnCall: false
+    isOnCall: false,
+
+    /**
+     * @type {number}
+     */
+    duration: 0
 })
 
 /**
@@ -54,6 +62,19 @@ class GroChatVoipProvider extends Component {
     constructor(props) {
         super(props)
 
+        /**
+         * @type {React.RefObject<HTMLAudioElement>}
+         */
+        this.ringingAudioRef = React.createRef()
+
+        /**
+         * @type {React.RefObject<HTMLAudioElement>}
+         */
+        this.incomingCallAudioRef = React.createRef()
+
+        /**
+         * @type {React.RefObject<HTMLAudioElement>}
+         */
         this.remoteAudioRef = React.createRef()
         this.state = {
             /**
@@ -74,7 +95,17 @@ class GroChatVoipProvider extends Component {
             /**
              * @type {boolean}
              */
-            isOnCall: false
+            isRinging: false,
+
+            /**
+             * @type {boolean}
+             */
+            isOnCall: false,
+
+            /**
+             * @type {number}
+             */
+            duration: 0
         }
     }
 
@@ -93,7 +124,7 @@ class GroChatVoipProvider extends Component {
      */
     call = async (clientId) => {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        const peer = new RTCPeerConnection()
+        const peer = new RTCPeerConnection(Config.iceServers)
         const callId = uuidv4()
 
         peer.ontrack = this.playRemoteStream
@@ -106,7 +137,7 @@ class GroChatVoipProvider extends Component {
 
         this.setState({
             localPeer: peer,
-            stream,
+            stream
         })
 
         this.sendOffer(callId, offer, clientId)
@@ -140,7 +171,7 @@ class GroChatVoipProvider extends Component {
                         is_reject: 0,
                         call_from_name: Config.profile.name,
                         call_from_phone: Config.profile.phone,
-                        image: '',
+                        call_from_photo_user: Config.profile.image,
                         code: JSON.stringify(offer)
                     }
                 }
@@ -157,7 +188,7 @@ class GroChatVoipProvider extends Component {
     answer = async () => {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         const currentCall = this.state.currentCall
-        const peer = new RTCPeerConnection()
+        const peer = new RTCPeerConnection(Config.iceServers)
 
         peer.ontrack = this.playRemoteStream
         peer.onicecandidate = (e) => this.sendIceCandidate(e, currentCall.callFrom, currentCall.callId, currentCall.callFrom, currentCall.callTo)
@@ -202,7 +233,7 @@ class GroChatVoipProvider extends Component {
                         is_reject: 0,
                         call_from_name: currentCall.callFromName,
                         call_from_phone: currentCall.callFromPhone,
-                        image: currentCall.image,
+                        call_from_photo_user: currentCall.callFromPhotoUser,
                         code: JSON.stringify(answer)
                     }
                 }
@@ -214,26 +245,95 @@ class GroChatVoipProvider extends Component {
     }
 
     hangUp = () => {
-        this.setState({
-            isOnCall: false
-        })
+        const currentCall = this.state.currentCall
+        if (!currentCall) {
+            return
+        }
+
+        console.log("HANGUP CURRENT CALL", currentCall)
+
+        const data = {
+            type: 'webrtc',
+            message: {
+                is_group: false,
+                source_id: Config.clientId,
+                destination_id: currentCall.callFrom,
+                identity: {
+                    client_id: Config.clientId,
+                    sign: Config.sign
+                },
+                message_detail: {
+                    message_model: {
+                        call_id: currentCall.callId,
+                        call_from: currentCall.callFrom,
+                        call_to: currentCall.callTo,
+                        call_status: 'end',
+                        start_call: 0,
+                        end_call: 0,
+                        duration: 0,
+                        is_reject: 0,
+                        call_from_name: currentCall.callFromName,
+                        call_from_phone: currentCall.callFromPhone,
+                        call_from_photo_user: currentCall.callFromPhotoUser,
+                    }
+                }
+            }
+        }
+
+        if (currentCall.type === 'offer' && !this.state.isOnCall) {
+            data.message.message_detail.message_model.call_status = 'reject'
+        }
+
+        console.log("HANGUP DATA", data)
+
+        this.props.ws.send(JSON.stringify(data))
     }
 
     /**
      * @param {RTCTrackEvent} e 
      */
     playRemoteStream = (e) => {
-        const remoteStream = e.streams[0]
-
-        /**
-         * @todo RECORD AUDIO
-         */
-        this.remoteAudioRef.current.srcObject = remoteStream
-        this.remoteAudioRef.current.play()
+        this.setCallDuration()
+        this.embedRemoteAudio(e.streams[0])
+        this.stopRingingSound()
 
         this.setState({
             isOnCall: true
         })
+    }
+
+    /**
+     * 
+     * @param {MediaStream} remoteStream 
+     */
+    embedRemoteAudio = (remoteStream) => {
+        this.remoteAudioRef.current.srcObject = remoteStream
+        this.remoteAudioRef.current.play()
+    }
+    
+    setCallDuration = () => {
+        const start = Math.floor(new Date().getTime() / 1000)
+
+        const interval = setInterval(() => {
+            if (!this.state.isOnCall) {
+                return clearInterval(interval)
+            }
+
+            const end = Math.floor(new Date().getTime() / 1000)
+            this.setState({
+                duration: end - start
+            })
+        }, 1000)
+    }
+
+    stopRingingSound = () => {
+        this.setState({
+            isRinging: false
+        })
+    }
+
+    stopStream = () => {
+        this.state.stream?.getAudioTracks().forEach(track => track.stop())
     }
 
     /**
@@ -277,7 +377,7 @@ class GroChatVoipProvider extends Component {
                         is_reject: 0,
                         name: "",
                         phone: "",
-                        image: "",
+                        call_from_photo_user: "",
                         code: code,
                     }
                 }
@@ -313,7 +413,14 @@ class GroChatVoipProvider extends Component {
     handleWebRTCMessage = (data) => {
         const messageModel = data.message.message_detail.message_model
         const callStatus = messageModel.call_status
-        const sdp = JSON.parse(messageModel.code)
+        
+        let sdp
+
+        try {
+            sdp = JSON.parse(messageModel.code)
+        } catch {}
+
+        console.log("MESSAGE", data, callStatus)
 
         switch(callStatus) {
             /*
@@ -334,12 +441,40 @@ class GroChatVoipProvider extends Component {
             case "candidate" :
                 this.handleCandidate(sdp)
                 break
+            /*
+                Ringing
+            */
+            case "ringing" :
+                this.handleRingingCall()
+                break
+            /*
+                Call Rejected
+            */
+            case "reject" :
+                this.handleEndCall()
+                break
+            /*
+                Call Ended
+            */
+            case "end" : 
+                this.handleEndCall()
+                break
             default :
                 return
         }
     }
 
+    playRingtone = () => {
+        this.incomingCallAudioRef.current.currentTime = 0
+        this.incomingCallAudioRef.current.loop = true
+        this.incomingCallAudioRef.current.play()
+    }
+
     handleOffer = (messageModel) => {
+        if (messageModel.call_from !== Config.clientId) {
+            this.playRingtone()
+        }
+
         this.setState({
             currentCall: {
                 callId: messageModel.call_id,
@@ -348,8 +483,9 @@ class GroChatVoipProvider extends Component {
                 callStatus: messageModel.call_status,
                 callFromName: messageModel.call_from_name,
                 callFromPhone: messageModel.call_from_phone,
-                image: messageModel.image,
-                code: messageModel.code
+                callFromPhotoUser: messageModel.call_from_photo_user,
+                code: messageModel.code,
+                type: 'offer'
             }
         })
     }
@@ -374,9 +510,46 @@ class GroChatVoipProvider extends Component {
             candidate: sdp.sdp
         })
 
-        console.log("CANDIDATE", candidate, this.state.localPeer)
-
         this.state.localPeer.addIceCandidate(candidate)
+    }
+
+    handleRingingCall = async () => {
+        if (this.state.isRinging) {
+            return
+        }
+
+        await this.setState({
+            isRinging: true
+        })
+
+        this.ringingAudioRef.current.currentTime = 0
+        this.ringingAudioRef.current.play()
+
+        const interval = setInterval(() => {
+            if (!this.state.isRinging) {
+                this.ringingAudioRef.current.pause()
+                return clearInterval(interval)
+            }
+
+            this.ringingAudioRef.current.currentTime = 0
+            this.ringingAudioRef.current.play()
+        }, 3000)
+    }
+
+    handleEndCall = () => {
+        this.stopRingingSound()
+
+        this.remoteAudioRef.current?.pause()
+        this.remoteAudioRef.current.srcObject = null
+        this.state.localPeer?.close()
+        this.stopStream()
+
+        this.setState({
+            localPeer: null,
+            stream: null,
+            isOnCall: false,
+            currentCall: null
+        })
     }
 
     render() {
@@ -387,10 +560,13 @@ class GroChatVoipProvider extends Component {
             remoteAudioRef: this.remoteAudioRef,
             currentCall:    this.state.currentCall,
             isOnCall:       this.state.isOnCall,
+            duration:       this.state.duration
         }
-
+        
         return (
             <GroChatVoipContext.Provider value={value}>
+                <audio controls ref={this.ringingAudioRef} src={ringingAudio}></audio>
+                <audio controls ref={this.incomingCallAudioRef} src={incomingCallAudio} style={{ visibility: 'hidden' }}></audio>
                 { this.props.children }
             </GroChatVoipContext.Provider>
         )
