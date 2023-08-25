@@ -29,10 +29,11 @@ class IncomingCall extends Component {
 
     render() {
         const groChatVoipContext = this.context
+        const currentCall = groChatVoipContext.currentCall
 
         return (
             <div>
-                
+                <h2>{currentCall.callFrom}</h2>
             </div>
         )
     }

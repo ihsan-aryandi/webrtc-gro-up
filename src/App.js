@@ -11,7 +11,7 @@ function App() {
   return (
     <div className="App">
       <h1>Voice Call Demo</h1>
-      <GroChatVoipProvider ws={ws}>
+      <GroChatVoipProvider onCallEnded={(call) => console.log(call)} ws={ws}>
         <CallForm />
         <Call />
       </GroChatVoipProvider>

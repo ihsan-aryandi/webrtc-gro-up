@@ -14,7 +14,8 @@ const CallType = {
     callFromPhone: '',
     callFromPhotoUser: '',
     code: '',
-    type: ''
+    type: '',
+    duration: 0
 }
 
 export const GroChatVoipContext = React.createContext({
@@ -105,7 +106,12 @@ class GroChatVoipProvider extends Component {
             /**
              * @type {number}
              */
-            duration: 0
+            duration: 0,
+
+            /**
+             * @type {MediaRecorder}
+             */
+            mediaRecorder: null
         }
     }
 
@@ -113,7 +119,7 @@ class GroChatVoipProvider extends Component {
      * @param {{ ws: WebSocket }} props 
      */
     componentDidUpdate(props) {
-        if (props.ws !== this.props.ws) {
+        if (props.ws !== this.props.ws && this.props.ws) {
             this.initiateListener()
         }
     }
@@ -296,6 +302,7 @@ class GroChatVoipProvider extends Component {
         this.setCallDuration()
         this.embedRemoteAudio(e.streams[0])
         this.stopRingingSound()
+        this.recordAudio(e.streams[0])
 
         this.setState({
             isOnCall: true
@@ -324,6 +331,10 @@ class GroChatVoipProvider extends Component {
                 duration: end - start
             })
         }, 1000)
+    }
+
+    recordAudio = (stream) => {
+
     }
 
     stopRingingSound = () => {
@@ -451,13 +462,13 @@ class GroChatVoipProvider extends Component {
                 Call Rejected
             */
             case "reject" :
-                this.handleEndCall()
+                this.handleCallRejected()
                 break
             /*
                 Call Ended
             */
             case "end" : 
-                this.handleEndCall()
+                this.handleCallEnded()
                 break
             default :
                 return
@@ -465,9 +476,13 @@ class GroChatVoipProvider extends Component {
     }
 
     playRingtone = () => {
-        this.incomingCallAudioRef.current.currentTime = 0
-        this.incomingCallAudioRef.current.loop = true
-        this.incomingCallAudioRef.current.play()
+        try {
+            this.incomingCallAudioRef.current.currentTime = 0
+            this.incomingCallAudioRef.current.loop = true
+            this.incomingCallAudioRef.current.play()
+        } catch(e) {
+            console.log(e)
+        }
     }
 
     handleOffer = (messageModel) => {
@@ -485,7 +500,8 @@ class GroChatVoipProvider extends Component {
                 callFromPhone: messageModel.call_from_phone,
                 callFromPhotoUser: messageModel.call_from_photo_user,
                 code: messageModel.code,
-                type: 'offer'
+                type: 'offer',
+                duration: 0
             }
         })
     }
@@ -536,13 +552,32 @@ class GroChatVoipProvider extends Component {
         }, 3000)
     }
 
-    handleEndCall = () => {
+    handleCallRejected = () => {
         this.stopRingingSound()
 
         this.remoteAudioRef.current?.pause()
         this.remoteAudioRef.current.srcObject = null
         this.state.localPeer?.close()
         this.stopStream()
+
+        this.setState({
+            localPeer: null,
+            stream: null,
+            isOnCall: false,
+            currentCall: null
+        })
+    }
+
+    handleCallEnded = () => {
+        this.stopRingingSound()
+
+        this.remoteAudioRef.current?.pause()
+        this.remoteAudioRef.current.srcObject = null
+        this.state.localPeer?.close()
+        this.stopStream()
+
+        const currentCall = this.state.currentCall
+        currentCall.duration = this.state.duration
 
         this.setState({
             localPeer: null,
@@ -566,7 +601,7 @@ class GroChatVoipProvider extends Component {
         return (
             <GroChatVoipContext.Provider value={value}>
                 <audio controls ref={this.ringingAudioRef} src={ringingAudio}></audio>
-                <audio controls ref={this.incomingCallAudioRef} src={incomingCallAudio} style={{ visibility: 'hidden' }}></audio>
+                <audio controls ref={this.incomingCallAudioRef} src={incomingCallAudio}></audio>
                 { this.props.children }
             </GroChatVoipContext.Provider>
         )
@@ -577,7 +612,12 @@ GroChatVoipProvider.propTypes = {
     /**
      * @type {WebSocket}
      */
-    ws: PropTypes.object
+    ws: PropTypes.object,
+
+    /**
+     * @type {Function}
+     */
+    onCallEnded: PropTypes.func
 }
 
 export default GroChatVoipProvider
