@@ -4,6 +4,7 @@ import Config from './config/config'
 import { v4 as uuidv4 } from 'uuid'
 import ringingAudio from './ringing.mp3'
 import incomingCallAudio from './ringtone.wav'
+import MultiStreamsMixer from 'multistreamsmixer'
 
 const CallType = {
     callId: '',
@@ -250,7 +251,7 @@ class GroChatVoipProvider extends Component {
         this.props.ws.send(data)
     }
 
-    hangUp = () => {
+    hangUp = async () => {
         const currentCall = this.state.currentCall
         if (!currentCall) {
             return
@@ -296,13 +297,14 @@ class GroChatVoipProvider extends Component {
     }
 
     /**
-     * @param {RTCTrackEvent} e 
+     * @param {RTCTrackEvent} e
+     * @param {MediaStream} localStream 
      */
-    playRemoteStream = (e) => {
+    playRemoteStream = (e, localStream) => {
         this.setCallDuration()
         this.embedRemoteAudio(e.streams[0])
         this.stopRingingSound()
-        this.recordAudio(e.streams[0])
+        this.recordAudio(localStream, e.streams[0])
 
         this.setState({
             isOnCall: true
@@ -333,8 +335,37 @@ class GroChatVoipProvider extends Component {
         }, 1000)
     }
 
-    recordAudio = (stream) => {
+    /**
+     * @param {MediaStream} localStream 
+     * @param {MediaStream} remoteStream 
+     */
+    recordAudio = (localStream, remoteStream) => {
+        const streams = new MultiStreamsMixer([localStream, remoteStream])
+        const mediaRecorder = new MediaRecorder(streams)
 
+        mediaRecorder.start()
+
+        this.setState({ mediaRecorder })
+    }
+
+    getRecordedAudio = async () => {
+        if (!this.state.mediaRecorder) {
+            return null
+        }
+
+        const mediaRecorder = this.state.mediaRecorder
+        const recordedAudioFile = new Promise((resolve) => {
+            mediaRecorder.ondataavailable = (e) => {
+                const blob = new Blob([e.data], { type: 'audio/mpeg' })
+                const recordedAudioFile = new File([blob], 'audio.mp3', { type: 'audio/mpeg' })
+
+                resolve(recordedAudioFile)
+            }
+
+            mediaRecorder.stop()
+        })
+
+        return await recordedAudioFile
     }
 
     stopRingingSound = () => {
